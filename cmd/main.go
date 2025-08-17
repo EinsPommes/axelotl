@@ -69,7 +69,7 @@ func update() {
 	playerPos := rl.NewVector2(player.PlayerDest.X, player.PlayerDest.Y)
 	attackPlayerFunc := func() {
 		player.SetPlayerDamageState()
-		player.TakeDamage(1.1)
+		player.TakeDamage(0.7)
 	}
 
 	slime.SlimeMoving(playerPos, attackPlayerFunc)
@@ -84,6 +84,7 @@ func update() {
 			})
 		}
 	}
+
 }
 
 func render() {

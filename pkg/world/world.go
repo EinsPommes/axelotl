@@ -10,14 +10,14 @@ import (
 )
 
 var (
-	tileDest           rl.Rectangle
-	tileSrc            rl.Rectangle
-	WorldMap           JsonMap
-	SpritesheetMap     rl.Texture2D
-	tex                rl.Texture2D
-	Structures         []Tile
-	WaterTiles         []Tile
-	WalkableWaterTiles []Tile
+	tileDest       rl.Rectangle
+	tileSrc        rl.Rectangle
+	WorldMap       JsonMap
+	SpritesheetMap rl.Texture2D
+	tex            rl.Texture2D
+	Structures     []Tile
+	WaterTiles     []Tile
+	GroundTiles    []Tile
 )
 
 type JsonMap struct {
@@ -59,11 +59,9 @@ func InitWorld() {
 }
 
 func DrawWorld() {
-	var groundTiles []Tile
-
 	for i := 0; i < len(WorldMap.Layers); i++ {
-		if WorldMap.Layers[i].Name == "Background" {
-			groundTiles = WorldMap.Layers[i].Tiles
+		if WorldMap.Layers[i].Name == "Land" {
+			GroundTiles = WorldMap.Layers[i].Tiles
 		}
 
 		if WorldMap.Layers[i].Name == "Details" {
@@ -74,16 +72,12 @@ func DrawWorld() {
 			WaterTiles = WorldMap.Layers[i].Tiles
 		}
 
-		if WorldMap.Layers[i].Name == "Walkable_Water" {
-			WalkableWaterTiles = WorldMap.Layers[i].Tiles
-		}
 	}
 
 	rl.DrawTexturePro(tex, tileSrc, tileDest, rl.NewVector2(0, 0), 0, rl.White)
 
 	RenderLayer(WaterTiles)
-	RenderLayer(WalkableWaterTiles)
-	RenderLayer(groundTiles)
+	RenderLayer(GroundTiles)
 	RenderLayer(Structures)
 
 }
@@ -107,15 +101,4 @@ func RenderLayer(Layer []Tile) {
 
 func UnloadWorldTexture() {
 	rl.UnloadTexture(SpritesheetMap)
-}
-
-func GetGroundTiles() []Tile {
-	var groundTiles []Tile
-	for i := 0; i < len(WorldMap.Layers); i++ {
-		if WorldMap.Layers[i].Name == "Background" {
-			groundTiles = WorldMap.Layers[i].Tiles
-			break
-		}
-	}
-	return groundTiles
 }

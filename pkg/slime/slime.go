@@ -28,6 +28,8 @@ type Slime struct {
 	MaxHealth    float32
 	Health       float32
 	HealthbarDir int
+	IsDead       bool
+	DeathTimer   int
 }
 
 var (
@@ -43,15 +45,16 @@ var (
 	slimeHealthBarWidth  float32 = 32
 	slimeHealthBarHeight float32 = 8
 	slimeHealthBarOffset float32 = 3
+	deathDuration        int     = 120
 
 	spawnTimer    int = 0
-	spawnInterval int = 380 // 5 seconds at 60 FPS
+	spawnInterval int = 300 // 500ms at 60 FPS
 
 	globalFrameCount int
 )
 
 func InitSlime() {
-	slimeSprite = rl.LoadTexture("assets/slime/spritesheet_slime.png")
+	slimeSprite = rl.LoadTexture("assets/slime/jellyfish_slime.png")
 	slimeHealthBarTexture = rl.LoadTexture("assets/axolotl/Health_Bars_001.png")
 	slimeHealthBarSrc = rl.NewRectangle(0, 0, 128, 32)
 
@@ -61,35 +64,65 @@ func InitSlime() {
 }
 
 func SpawnSlime() {
-	groundTiles := world.GetGroundTiles()
+	waterTiles := world.WaterTiles
 
-	if len(groundTiles) == 0 {
+	if len(waterTiles) == 0 {
 		return
 	}
 
-	randomIndex := rand.Intn(len(groundTiles))
-	selectedTile := groundTiles[randomIndex]
+	maxAttempts := 10
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		randomIndex := rand.Intn(len(waterTiles))
+		selectedTile := waterTiles[randomIndex]
 
-	x := float32(selectedTile.X * world.WorldMap.TileSize)
-	y := float32(selectedTile.Y * world.WorldMap.TileSize)
+		x := float32(selectedTile.X * world.WorldMap.TileSize)
+		y := float32(selectedTile.Y * world.WorldMap.TileSize)
 
-	newSlime := Slime{
-		Sprite:       slimeSprite,
-		Src:          rl.NewRectangle(0, 0, 32, 32),
-		Dest:         rl.NewRectangle(x, y, 32, 32),
-		Dir:          5,
-		Frame:        0,
-		HitBox:       rl.NewRectangle(0, 0, 10, 10),
-		FrameCount:   0,
-		LastAttack:   0,
-		IsAttacking:  false,
-		AttackTimer:  0,
-		MaxHealth:    5.0,
-		Health:       5.0,
-		HealthbarDir: 0,
+		if !IsLocationOnGround(x, y) {
+			newSlime := Slime{
+				Sprite:       slimeSprite,
+				Src:          rl.NewRectangle(0, 0, 32, 32),
+				Dest:         rl.NewRectangle(x, y, 32, 32),
+				Dir:          5,
+				Frame:        0,
+				HitBox:       rl.NewRectangle(0, 0, 10, 10),
+				FrameCount:   0,
+				LastAttack:   0,
+				IsAttacking:  false,
+				AttackTimer:  0,
+				MaxHealth:    5.0,
+				Health:       5.0,
+				HealthbarDir: 0,
+				IsDead:       false,
+				DeathTimer:   0,
+			}
+
+			slimes = append(slimes, newSlime)
+			return
+		}
+	}
+}
+
+func IsLocationOnGround(x, y float32) bool {
+	groundTiles := world.GroundTiles
+	tileSize := float32(world.WorldMap.TileSize)
+
+	slimeRect := rl.NewRectangle(x, y, 32, 32)
+
+	for _, tile := range groundTiles {
+		tileRect := rl.NewRectangle(
+			float32(tile.X)*tileSize,
+			float32(tile.Y)*tileSize,
+			tileSize,
+			tileSize,
+		)
+
+		if rl.CheckCollisionRecs(slimeRect, tileRect) {
+			return true
+		}
 	}
 
-	slimes = append(slimes, newSlime)
+	return false
 }
 
 func UpdateSlimeSpawning() {
@@ -102,9 +135,11 @@ func UpdateSlimeSpawning() {
 
 func DrawSlimeTexture() {
 	for i := range slimes {
-		if slimes[i].Health > 0 {
+		if slimes[i].Health > 0 || slimes[i].IsDead {
 			rl.DrawTexturePro(slimes[i].Sprite, slimes[i].Src, slimes[i].Dest, rl.NewVector2(0, 0), 0, rl.White)
-			DrawSlimeHealthBar(i)
+			if slimes[i].Health > 0 {
+				DrawSlimeHealthBar(i)
+			}
 		}
 	}
 }
@@ -113,7 +148,7 @@ func SlimeMoving(playerPos rl.Vector2, attackPlayerFunc func()) {
 	globalFrameCount++
 
 	for i := range slimes {
-		if slimes[i].Health <= 0 {
+		if slimes[i].Health <= 0 && !slimes[i].IsDead {
 			continue
 		}
 
@@ -124,56 +159,84 @@ func SlimeMoving(playerPos rl.Vector2, attackPlayerFunc func()) {
 			slimes[i].Frame++
 		}
 
-		if slimes[i].Frame >= 8 {
-			slimes[i].Frame = 0
+		if slimes[i].IsDead {
+			if slimes[i].Frame >= 3 {
+				slimes[i].Frame = 0
+			}
+		} else {
+			if slimes[i].Frame >= 5 {
+				slimes[i].Frame = 0
+			}
+		}
+
+		if slimes[i].IsAttacking {
+			if slimes[i].Frame >= 6 {
+				slimes[i].Frame = 0
+			}
+		} else {
+			if slimes[i].Frame >= 5 {
+				slimes[i].Frame = 0
+			}
 		}
 
 		slimes[i].FrameCount++
 
-		if slimes[i].IsAttacking {
-			slimes[i].Dir = 0
+		if slimes[i].IsDead {
+			slimes[i].Dir = 4
+			slimes[i].DeathTimer++
+			if slimes[i].DeathTimer >= deathDuration {
+				slimes[i].IsDead = false
+				slimes[i].DeathTimer = 0
+			}
+		} else if slimes[i].IsAttacking {
+			slimes[i].Dir = 3
 		} else {
-			slimes[i].Dir = 5
+			slimes[i].Dir = 2
 		}
 
 		slimes[i].Src.Y = slimes[i].Src.Height * float32(slimes[i].Dir)
 
-		dist := rl.Vector2Distance(rl.NewVector2(slimes[i].Dest.X, slimes[i].Dest.Y), playerPos)
+		if !slimes[i].IsDead {
+			dist := rl.Vector2Distance(rl.NewVector2(slimes[i].Dest.X, slimes[i].Dest.Y), playerPos)
 
-		if dist <= attackRange && globalFrameCount-slimes[i].LastAttack >= attackCooldown && !slimes[i].IsAttacking {
-			attackPlayerFunc()
-			slimes[i].LastAttack = globalFrameCount
-			slimes[i].IsAttacking = true
-			slimes[i].AttackTimer = attackDuration
-		}
-
-		if slimes[i].IsAttacking {
-			slimes[i].AttackTimer--
-			if slimes[i].AttackTimer <= 0 {
-				slimes[i].IsAttacking = false
-			}
-		}
-
-		if !slimes[i].IsAttacking && dist < 150 && dist > 5 {
-			directionX := playerPos.X - slimes[i].Dest.X
-			directionY := playerPos.Y - slimes[i].Dest.Y
-
-			length := rl.Vector2Length(rl.NewVector2(directionX, directionY))
-			if length > 0 {
-				directionX /= length
-				directionY /= length
+			if dist <= attackRange && globalFrameCount-slimes[i].LastAttack >= attackCooldown && !slimes[i].IsAttacking {
+				slimes[i].LastAttack = globalFrameCount
+				slimes[i].IsAttacking = true
+				slimes[i].AttackTimer = attackDuration
 			}
 
-			moveSpeed := float32(0.8)
+			if slimes[i].IsAttacking {
+				slimes[i].AttackTimer--
 
-			slimes[i].Dest.X += directionX * moveSpeed
-			slimes[i].Dest.Y += directionY * moveSpeed
+				if slimes[i].AttackTimer <= attackDuration-3 && slimes[i].AttackTimer > attackDuration-6 {
+					attackPlayerFunc()
+				}
+				if slimes[i].AttackTimer <= 0 {
+					slimes[i].IsAttacking = false
+				}
+			}
+
+			if !slimes[i].IsAttacking && dist < 150 && dist > 5 {
+				directionX := playerPos.X - slimes[i].Dest.X
+				directionY := playerPos.Y - slimes[i].Dest.Y
+
+				length := rl.Vector2Length(rl.NewVector2(directionX, directionY))
+				if length > 0 {
+					directionX /= length
+					directionY /= length
+				}
+
+				moveSpeed := float32(0.8)
+
+				slimes[i].Dest.X += directionX * moveSpeed
+				slimes[i].Dest.Y += directionY * moveSpeed
+			}
 		}
 
 		slimes[i].HitBox.X = slimes[i].Dest.X + (slimes[i].Dest.Width / 2) - slimes[i].HitBox.Width/2
 		slimes[i].HitBox.Y = slimes[i].Dest.Y + (slimes[i].Dest.Height / 2) + slimeHitBoxYOffset
 
-		SlimeCollision(i, world.WaterTiles)
+		SlimeCollision(i, world.GroundTiles)
 	}
 }
 
@@ -215,7 +278,7 @@ func DrawSlimeHealthBar(slimeIndex int) {
 func GetSlimePositions() []rl.Vector2 {
 	var positions []rl.Vector2
 	for i := range slimes {
-		if slimes[i].Health > 0 {
+		if slimes[i].Health > 0 && !slimes[i].IsDead {
 			positions = append(positions, rl.NewVector2(slimes[i].Dest.X, slimes[i].Dest.Y))
 		}
 	}
@@ -224,7 +287,7 @@ func GetSlimePositions() []rl.Vector2 {
 
 func GetSlimePosition() rl.Vector2 {
 	for i := range slimes {
-		if slimes[i].Health > 0 {
+		if slimes[i].Health > 0 && !slimes[i].IsDead {
 			return rl.NewVector2(slimes[i].Dest.X, slimes[i].Dest.Y)
 		}
 	}
@@ -232,7 +295,7 @@ func GetSlimePosition() rl.Vector2 {
 }
 
 func GetSlimePositionByIndex(index int) rl.Vector2 {
-	if index < 0 || index >= len(slimes) || slimes[index].Health <= 0 {
+	if index < 0 || index >= len(slimes) || slimes[index].Health <= 0 || slimes[index].IsDead {
 		return rl.NewVector2(0, 0)
 	}
 	return rl.NewVector2(slimes[index].Dest.X, slimes[index].Dest.Y)
@@ -240,7 +303,7 @@ func GetSlimePositionByIndex(index int) rl.Vector2 {
 
 func IsSlimeAlive() bool {
 	for i := range slimes {
-		if slimes[i].Health > 0 {
+		if slimes[i].Health > 0 && !slimes[i].IsDead {
 			return true
 		}
 	}
@@ -252,7 +315,7 @@ func GetClosestSlimeIndex(playerPos rl.Vector2) int {
 	closestDistance := float32(999999)
 
 	for i := range slimes {
-		if slimes[i].Health > 0 {
+		if slimes[i].Health > 0 && !slimes[i].IsDead {
 			distance := rl.Vector2Distance(playerPos, rl.NewVector2(slimes[i].Dest.X, slimes[i].Dest.Y))
 			if distance < closestDistance {
 				closestDistance = distance
@@ -277,6 +340,8 @@ func DamageSlime(slimeIndex int, damage float32, killCounterFunc func()) {
 	}
 
 	if wasAlive && slimes[slimeIndex].Health <= 0 {
+		slimes[slimeIndex].IsDead = true
+		slimes[slimeIndex].DeathTimer = 0
 		killCounterFunc()
 	}
 

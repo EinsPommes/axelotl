@@ -63,7 +63,7 @@ func InitPlayer() {
 
 	healthBarSrc = rl.NewRectangle(0, 0, 32, 64)
 
-	PlayerDest = rl.NewRectangle(280, 220, 32, 32)
+	PlayerDest = rl.NewRectangle(600, 400, 32, 32)
 	PlayerHitBox = rl.NewRectangle(0, 0, 10, 10)
 
 	Cam = rl.NewCamera2D(rl.NewVector2(float32(screenWidth/2), float32(screenHeight/2)),
@@ -180,7 +180,7 @@ func PlayerMoving() {
 	PlayerHitBox.X = PlayerDest.X + (PlayerDest.Width / 2) - PlayerHitBox.Width/2
 	PlayerHitBox.Y = PlayerDest.Y + (PlayerDest.Height / 2) + playerHitBoxYOffset
 
-	PlayerCollision(world.WaterTiles)
+	PlayerCollision(world.GroundTiles)
 
 	Cam.Target = rl.NewVector2(float32(PlayerDest.X-(PlayerDest.Width/2)), float32(PlayerDest.Y-(PlayerDest.Height/2)))
 
@@ -277,8 +277,8 @@ func IsPlayerDead() bool {
 
 func ResetPlayer() {
 	currentHealth = maxHealth
-	PlayerDest.X = 280
-	PlayerDest.Y = 220
+	PlayerDest.X = 600
+	PlayerDest.Y = 400
 	playerDir = 1
 	playerFrame = 0
 	playerMoving = false
@@ -305,6 +305,6 @@ func GetKillCount() int {
 }
 
 func DrawKillCounter() {
-	killText := fmt.Sprintf("Slimes Killed: %d", slimeKillCount)
+	killText := fmt.Sprintf("Jellyfish Killed: %d", slimeKillCount)
 	rl.DrawText(killText, 10, 10, 20, rl.White)
 }
