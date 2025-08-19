@@ -247,6 +247,9 @@ func TryAttack(targetPos rl.Vector2, attackFunc func(float32)) bool {
 			dashDirectionX = (targetPos.X - playerPos.X) / dist
 			dashDirectionY = (targetPos.Y - playerPos.Y) / dist
 
+			// Do damage immediately on dash start (no knockback)
+			attackFunc(weaponDamage * 1.5)
+
 			// Spawn water wave effect
 			SpawnDashWave()
 			screenShake = 2.0
@@ -513,6 +516,10 @@ func IncrementKillCount() {
 
 func GetKillCount() int {
 	return slimeKillCount
+}
+
+func GetCurrentCombo() int {
+	return comboCount
 }
 
 func DrawKillCounter() {

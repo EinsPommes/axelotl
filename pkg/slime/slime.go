@@ -369,39 +369,41 @@ func UpdateSlimeAI(slimeIndex int, playerPos rl.Vector2, attackPlayerFunc func()
 
 	switch slime.aiState {
 	case Wandering:
-		// Random movement around spawn area
 		slime.wanderTimer--
 		if slime.wanderTimer <= 0 {
-			// Pick new random target within patrol radius
 			radius := rand.Float32() * slime.patrolRadius
 			slime.targetX = slime.Dest.X + float32(radius)*float32(rl.GetRandomValue(-1, 1))
 			slime.targetY = slime.Dest.Y + float32(radius)*float32(rl.GetRandomValue(-1, 1))
-			slime.wanderTimer = rand.Intn(120) + 60
+			slime.wanderTimer = rand.Intn(180) + 120
 		}
 
-		// Move towards wander target slowly
+		// Sometimes just pause and look around
+		if rand.Float32() < 0.08 {
+			return
+		}
+
 		if slime.targetX != slime.Dest.X || slime.targetY != slime.Dest.Y {
 			dirX := slime.targetX - slime.Dest.X
 			dirY := slime.targetY - slime.Dest.Y
 			length := rl.Vector2Length(rl.NewVector2(dirX, dirY))
 			if length > 2 {
-				slime.Dest.X += (dirX / length) * 0.3
-				slime.Dest.Y += (dirY / length) * 0.3
+				// Lazy movement with random hesitation
+				speed := float32(0.15) + rand.Float32()*0.25
+				slime.Dest.X += (dirX / length) * speed
+				slime.Dest.Y += (dirY / length) * speed
 			}
 		}
 
-		// Switch to chasing if player gets close
 		if dist < slime.aggroRange {
 			slime.aiState = Chasing
 			slime.stateTimer = 0
 		}
 
 	case Chasing:
-		// Chase player aggressively
 		if dist <= attackRange && globalFrameCount-slime.LastAttack >= attackCooldown {
 			slime.aiState = Attacking
 			slime.stateTimer = 0
-		} else if dist < 200 && dist > 5 {
+		} else if dist < 150 && dist > 8 {
 			directionX := playerPos.X - slime.Dest.X
 			directionY := playerPos.Y - slime.Dest.Y
 
@@ -411,22 +413,25 @@ func UpdateSlimeAI(slimeIndex int, playerPos rl.Vector2, attackPlayerFunc func()
 				directionY /= length
 			}
 
-			// Slightly unpredictable movement
-			zigzag := float32(rl.GetRandomValue(-10, 10)) / 100.0
-			moveSpeed := float32(0.9) + rand.Float32()*0.4 // variable speed
+			// Natural movement - sometimes hesitate or overshoot
+			hesitation := rand.Float32()
+			if hesitation < 0.1 {
+				return // pause like real animals
+			} else if hesitation < 0.2 {
+				directionX += (rand.Float32() - 0.5) * 0.3
+				directionY += (rand.Float32() - 0.5) * 0.3
+			}
 
-			slime.Dest.X += (directionX + zigzag) * moveSpeed
-			slime.Dest.Y += (directionY + zigzag) * moveSpeed
+			// Speed based on health (hurt = more desperate)
+			urgency := (slime.MaxHealth - slime.Health) / slime.MaxHealth
+			baseSpeed := float32(0.6) + urgency*0.4
+			moveSpeed := baseSpeed + (rand.Float32()-0.5)*0.2
+
+			slime.Dest.X += directionX * moveSpeed
+			slime.Dest.Y += directionY * moveSpeed
 		} else if dist > slime.aggroRange*1.5 {
-			// Lost player, go back to wandering
 			slime.aiState = Wandering
 			slime.wanderTimer = 30
-		}
-
-		// Sometimes retreat if low health
-		if slime.Health < slime.MaxHealth*0.3 && rand.Intn(100) < 15 {
-			slime.aiState = Retreating
-			slime.stateTimer = 0
 		}
 
 	case Attacking:
@@ -443,8 +448,8 @@ func UpdateSlimeAI(slimeIndex int, playerPos rl.Vector2, attackPlayerFunc func()
 			}
 			if slime.AttackTimer <= 0 {
 				slime.IsAttacking = false
-				// After attacking, either chase more or retreat
-				if rand.Intn(100) < 70 {
+				// Usually keep fighting, sometimes back off briefly
+				if rand.Intn(100) < 90 {
 					slime.aiState = Chasing
 				} else {
 					slime.aiState = Retreating
@@ -454,8 +459,7 @@ func UpdateSlimeAI(slimeIndex int, playerPos rl.Vector2, attackPlayerFunc func()
 		}
 
 	case Retreating:
-		// Move away from player
-		if dist < 80 {
+		if dist < 60 {
 			directionX := slime.Dest.X - playerPos.X
 			directionY := slime.Dest.Y - playerPos.Y
 
@@ -465,17 +469,16 @@ func UpdateSlimeAI(slimeIndex int, playerPos rl.Vector2, attackPlayerFunc func()
 				directionY /= length
 			}
 
-			retreatSpeed := float32(1.2)
+			retreatSpeed := float32(1.0)
 			slime.Dest.X += directionX * retreatSpeed
 			slime.Dest.Y += directionY * retreatSpeed
 		} else {
-			// Far enough, go back to wandering
 			slime.aiState = Wandering
 			slime.wanderTimer = rand.Intn(60) + 30
 		}
 
-		// If retreat timer runs out, go back to chasing
-		if slime.stateTimer > 180 {
+		// Quick return to fighting
+		if slime.stateTimer > 90 {
 			slime.aiState = Chasing
 			slime.stateTimer = 0
 		}
