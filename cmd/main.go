@@ -20,6 +20,7 @@ var (
 
 func drawScene() {
 	world.DrawWorld()
+	player.DrawChargeEffects() // Draw effects behind player
 	player.DrawPlayerTexture()
 	slime.DrawSlimeTexture()
 }
@@ -90,6 +91,11 @@ func update() {
 func render() {
 	var cam = player.Cam
 
+	// Apply screen shake to camera
+	shakeOffset := player.GetScreenShakeOffset()
+	cam.Target.X += shakeOffset.X
+	cam.Target.Y += shakeOffset.Y
+
 	rl.BeginDrawing()
 	rl.ClearBackground(bgColor)
 
@@ -100,6 +106,7 @@ func render() {
 
 	player.DrawHealthBar()
 	player.DrawKillCounter()
+	player.DrawWeaponHUD()
 
 	rl.EndDrawing()
 }

@@ -30,6 +30,15 @@ type Slime struct {
 	HealthbarDir int
 	IsDead       bool
 	DeathTimer   int
+
+	// Enhanced AI
+	aiState      AIState
+	stateTimer   int
+	targetX      float32
+	targetY      float32
+	aggroRange   float32
+	patrolRadius float32
+	wanderTimer  int
 }
 
 var (
@@ -51,6 +60,16 @@ var (
 	spawnInterval int = 300 // 500ms at 60 FPS
 
 	globalFrameCount int
+)
+
+type AIState int
+
+const (
+	Wandering AIState = iota
+	Chasing
+	Attacking
+	Retreating
+	Stunned
 )
 
 func InitSlime() {
@@ -95,6 +114,15 @@ func SpawnSlime() {
 				HealthbarDir: 0,
 				IsDead:       false,
 				DeathTimer:   0,
+
+				// AI stuff
+				aiState:      Wandering,
+				stateTimer:   0,
+				targetX:      x,
+				targetY:      y,
+				aggroRange:   120.0 + rand.Float32()*80.0, // random aggro range
+				patrolRadius: 50.0 + rand.Float32()*30.0,
+				wanderTimer:  rand.Intn(120) + 60,
 			}
 
 			slimes = append(slimes, newSlime)
@@ -197,40 +225,7 @@ func SlimeMoving(playerPos rl.Vector2, attackPlayerFunc func()) {
 		slimes[i].Src.Y = slimes[i].Src.Height * float32(slimes[i].Dir)
 
 		if !slimes[i].IsDead {
-			dist := rl.Vector2Distance(rl.NewVector2(slimes[i].Dest.X, slimes[i].Dest.Y), playerPos)
-
-			if dist <= attackRange && globalFrameCount-slimes[i].LastAttack >= attackCooldown && !slimes[i].IsAttacking {
-				slimes[i].LastAttack = globalFrameCount
-				slimes[i].IsAttacking = true
-				slimes[i].AttackTimer = attackDuration
-			}
-
-			if slimes[i].IsAttacking {
-				slimes[i].AttackTimer--
-
-				if slimes[i].AttackTimer <= attackDuration-3 && slimes[i].AttackTimer > attackDuration-6 {
-					attackPlayerFunc()
-				}
-				if slimes[i].AttackTimer <= 0 {
-					slimes[i].IsAttacking = false
-				}
-			}
-
-			if !slimes[i].IsAttacking && dist < 150 && dist > 5 {
-				directionX := playerPos.X - slimes[i].Dest.X
-				directionY := playerPos.Y - slimes[i].Dest.Y
-
-				length := rl.Vector2Length(rl.NewVector2(directionX, directionY))
-				if length > 0 {
-					directionX /= length
-					directionY /= length
-				}
-
-				moveSpeed := float32(0.8)
-
-				slimes[i].Dest.X += directionX * moveSpeed
-				slimes[i].Dest.Y += directionY * moveSpeed
-			}
+			UpdateSlimeAI(i, playerPos, attackPlayerFunc)
 		}
 
 		slimes[i].HitBox.X = slimes[i].Dest.X + (slimes[i].Dest.Width / 2) - slimes[i].HitBox.Width/2
@@ -362,6 +357,128 @@ func DamageSlime(slimeIndex int, damage float32, killCounterFunc func()) {
 		slimes[slimeIndex].HealthbarDir = 6
 	} else {
 		slimes[slimeIndex].HealthbarDir = 7
+	}
+}
+
+func UpdateSlimeAI(slimeIndex int, playerPos rl.Vector2, attackPlayerFunc func()) {
+	slime := &slimes[slimeIndex]
+	slimePos := rl.NewVector2(slime.Dest.X, slime.Dest.Y)
+	dist := rl.Vector2Distance(slimePos, playerPos)
+
+	slime.stateTimer++
+
+	switch slime.aiState {
+	case Wandering:
+		// Random movement around spawn area
+		slime.wanderTimer--
+		if slime.wanderTimer <= 0 {
+			// Pick new random target within patrol radius
+			radius := rand.Float32() * slime.patrolRadius
+			slime.targetX = slime.Dest.X + float32(radius)*float32(rl.GetRandomValue(-1, 1))
+			slime.targetY = slime.Dest.Y + float32(radius)*float32(rl.GetRandomValue(-1, 1))
+			slime.wanderTimer = rand.Intn(120) + 60
+		}
+
+		// Move towards wander target slowly
+		if slime.targetX != slime.Dest.X || slime.targetY != slime.Dest.Y {
+			dirX := slime.targetX - slime.Dest.X
+			dirY := slime.targetY - slime.Dest.Y
+			length := rl.Vector2Length(rl.NewVector2(dirX, dirY))
+			if length > 2 {
+				slime.Dest.X += (dirX / length) * 0.3
+				slime.Dest.Y += (dirY / length) * 0.3
+			}
+		}
+
+		// Switch to chasing if player gets close
+		if dist < slime.aggroRange {
+			slime.aiState = Chasing
+			slime.stateTimer = 0
+		}
+
+	case Chasing:
+		// Chase player aggressively
+		if dist <= attackRange && globalFrameCount-slime.LastAttack >= attackCooldown {
+			slime.aiState = Attacking
+			slime.stateTimer = 0
+		} else if dist < 200 && dist > 5 {
+			directionX := playerPos.X - slime.Dest.X
+			directionY := playerPos.Y - slime.Dest.Y
+
+			length := rl.Vector2Length(rl.NewVector2(directionX, directionY))
+			if length > 0 {
+				directionX /= length
+				directionY /= length
+			}
+
+			// Slightly unpredictable movement
+			zigzag := float32(rl.GetRandomValue(-10, 10)) / 100.0
+			moveSpeed := float32(0.9) + rand.Float32()*0.4 // variable speed
+
+			slime.Dest.X += (directionX + zigzag) * moveSpeed
+			slime.Dest.Y += (directionY + zigzag) * moveSpeed
+		} else if dist > slime.aggroRange*1.5 {
+			// Lost player, go back to wandering
+			slime.aiState = Wandering
+			slime.wanderTimer = 30
+		}
+
+		// Sometimes retreat if low health
+		if slime.Health < slime.MaxHealth*0.3 && rand.Intn(100) < 15 {
+			slime.aiState = Retreating
+			slime.stateTimer = 0
+		}
+
+	case Attacking:
+		if !slime.IsAttacking {
+			slime.LastAttack = globalFrameCount
+			slime.IsAttacking = true
+			slime.AttackTimer = attackDuration
+		}
+
+		if slime.IsAttacking {
+			slime.AttackTimer--
+			if slime.AttackTimer <= attackDuration-3 && slime.AttackTimer > attackDuration-6 {
+				attackPlayerFunc()
+			}
+			if slime.AttackTimer <= 0 {
+				slime.IsAttacking = false
+				// After attacking, either chase more or retreat
+				if rand.Intn(100) < 70 {
+					slime.aiState = Chasing
+				} else {
+					slime.aiState = Retreating
+				}
+				slime.stateTimer = 0
+			}
+		}
+
+	case Retreating:
+		// Move away from player
+		if dist < 80 {
+			directionX := slime.Dest.X - playerPos.X
+			directionY := slime.Dest.Y - playerPos.Y
+
+			length := rl.Vector2Length(rl.NewVector2(directionX, directionY))
+			if length > 0 {
+				directionX /= length
+				directionY /= length
+			}
+
+			retreatSpeed := float32(1.2)
+			slime.Dest.X += directionX * retreatSpeed
+			slime.Dest.Y += directionY * retreatSpeed
+		} else {
+			// Far enough, go back to wandering
+			slime.aiState = Wandering
+			slime.wanderTimer = rand.Intn(60) + 30
+		}
+
+		// If retreat timer runs out, go back to chasing
+		if slime.stateTimer > 180 {
+			slime.aiState = Chasing
+			slime.stateTimer = 0
+		}
 	}
 }
 
